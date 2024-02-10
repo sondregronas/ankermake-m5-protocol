@@ -113,11 +113,8 @@ def pppp_send_file(api, fui, data):
 
     log.info("Sending file contents..")
     blocksize = 1024 * 32
-    chunks = cli.util.split_chunks(data, blocksize)
-    pos = 0
 
     with tqdm(unit="b", total=len(data), unit_scale=True, unit_divisor=1024) as bar:
-        for chunk in chunks:
+        for pos, chunk in cli.util.split_chunks(data, blocksize):
             api.aabb_request(chunk, frametype=FileTransfer.DATA, pos=pos)
-            pos += len(chunk)
             bar.update(len(chunk))
