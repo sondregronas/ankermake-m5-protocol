@@ -18,6 +18,7 @@ print_usage() {
   echo ""
   echo "    -o          Open mode. Allow connections from the network"
   echo "    -b          Build the docker image from source"
+  echo "    -i          Interactive mode. Blocks to run ankerctl. You can see the logging output"
   echo "    -p <port>   Port for Ankerctl web interface"
   echo "    -d <data>   Ankerctl data volume"
   echo ""
@@ -37,13 +38,14 @@ if [ $# -eq 0 ]; then
   exit 0
 fi
 
-OPT_MATCHES=':obp:d:'
+OPT_MATCHES=':obip:d:'
 
 while getopts "${OPT_MATCHES}" options; do
   case "${options}" in
     o) FLASK_HOST=0.0.0.0 ;;
     b) BUILD_IMAGE="1" ;;
     p) FLASK_PORT=${OPTARG} ;;
+    i) INTERACTIVE="1" ;;
     d) ANKERCTL_DATA=${OPTARG} ;;
     :)
       echo "Error: -${OPTARG} requires an argument"
@@ -69,15 +71,17 @@ case "${COMMAND}" in
   up)
     if [ ! -z "${BUILD_IMAGE}" ]; then
       # build docker image
-      COMPOSE_EXTRA_PARAMS="--build "
+      COMPOSE_EXTRA_PARAMS="${COMPOSE_EXTRA_PARAMS} --build "
+    fi
+    if [ -z "${INTERACTIVE}" ]; then
+      COMPOSE_EXTRA_PARAMS="${COMPOSE_EXTRA_PARAMS} -d "
     fi
 
-    FLASK_HOST=${FLASK_HOST} FLASK_PORT=${FLASK_PORT} ANKERCTL_DATA=${ANKERCTL_DATA} docker-compose up ${COMPOSE_EXTRA_PARAMS} -d 
+    FLASK_HOST=${FLASK_HOST} FLASK_PORT=${FLASK_PORT} ANKERCTL_DATA=${ANKERCTL_DATA} docker-compose up ${COMPOSE_EXTRA_PARAMS}
 
     cat << EOF > ./.env
 FLASK_HOST=${FLASK_HOST}
 FLASK_PORT=${FLASK_PORT}
-BUILD_IMAGE=${BUILD_IMAGE}
 ANKERCTL_DATA=${ANKERCTL_DATA}
 EOF
 
