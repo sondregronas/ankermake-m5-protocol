@@ -116,6 +116,8 @@ def video_download():
     def generate():
         if not app.config["login"]:
             return
+        if not app.svc.running:
+            app.svc.run()
         for msg in app.svc.stream("videoqueue"):
             yield msg.data
 
