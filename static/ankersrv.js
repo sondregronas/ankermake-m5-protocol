@@ -432,7 +432,7 @@ $(function () {
 
     sockets.pppp_state = new AutoWebSocket({
         name: "PPPP socket",
-        url: `ws://${location.host}/ws/pppp-state`,
+        url: `${location.protocol.replace('http','ws')}//${location.host}/ws/pppp-state`,
         badge: "#badge-pppp",
     });
 
