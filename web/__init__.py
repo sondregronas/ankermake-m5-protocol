@@ -64,15 +64,6 @@ import web.service.filetransfer
 # autopep8: on
 
 
-class AnkerBaseException(Exception):
-    pass
-
-
-class AnkerCriticalError(AnkerBaseException):
-    # NOTE: This will shutdown the app on critical errors
-    pass
-
-
 @sock.route("/ws/mqtt")
 def mqtt(sock):
     """
@@ -106,8 +97,6 @@ def pppp_state(sock):
 
     pppp_connected = False
 
-    # A timeout of 3 sec should be fine, as the printer continuously sends
-    # PktAlive messages every second on an established connnection.
     for chan, msg in app.svc.stream("pppp", timeout=3.0):
         if not pppp_connected:
             with app.svc.borrow("pppp") as pppp:
@@ -118,10 +107,9 @@ def pppp_state(sock):
                     sock.send(json.dumps({"status": "connected"}))
                     log.info(f"PPPP connection established")
 
-    log.warning("PPPP connection lost")
-
-    # TODO: Verify that the printer is online before raising an error
-    raise AnkerCriticalError("PPPP connection lost")
+    if not pppp_connected:
+        log.warning(f"PPPP connection lost, restarting PPPPService")
+        app.svc.get('pppp').restart()
 
 
 @sock.route("/ws/ctrl")
@@ -424,15 +412,6 @@ def app_api_files_local():
         )
 
     return {}
-
-
-@app.errorhandler(AnkerCriticalError)
-def handle_exception(e):
-    # Shutdown the server on critical errors
-    # If running docker, it should restart the container (assuming restart policy is set)
-    import os
-    import signal
-    os.kill(os.getpid(), signal.SIGINT)
 
 
 def webserver(config, printer_index, host, port, insecure=False, **kwargs):
