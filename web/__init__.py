@@ -37,7 +37,7 @@ from user_agents import parse as user_agent_parse
 
 from libflagship import ROOT_DIR
 
-from web.lib.service import ServiceManager
+from web.lib.service import ServiceManager, RunState
 
 import web.config
 import web.platform
@@ -415,6 +415,35 @@ def app_api_files_local():
         )
 
     return {}
+
+
+@app.get("/api/ankerctl/status")
+def app_api_ankerctl_status() -> dict:
+    """
+    Returns the status of the services
+
+    Returns:
+        A dictionary containing the keys 'status', possible_states and 'services'
+        status = 'ok' == all running | 'error' == some not running
+        services = {svc_name: {online: bool, state: str, state_value: int}}
+        possible_states = {state_name: state_value}
+    """
+    def get_svc_status(svc):
+        state = svc.state
+        if state == RunState.Running:
+            return {'online': True, 'state': state.name, 'state_value': state.value}
+        return {'online': False, 'state': state.name, 'state_value': state.value}
+
+    svcs_status = {svc_name: get_svc_status(svc) for svc_name, svc in app.svc.svcs.items()}
+
+    # Ignore filetransfer service, as it is only online when in use (?) (relies on pppp service anyway)
+    ok = all([svc['online'] for svc_name, svc in svcs_status.items() if svc_name != 'filetransfer'])
+
+    return {
+        "status": "ok" if ok else "error",
+        "services": svcs_status,
+        "possible_states": {state.name: state.value for state in RunState},
+    }
 
 
 def webserver(config, printer_index, host, port, insecure=False, **kwargs):
