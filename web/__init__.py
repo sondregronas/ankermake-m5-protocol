@@ -254,6 +254,11 @@ def app_api_files_local():
 
     return {}
 
+@app.errorhandler(RuntimeError)
+def handle_exception(e):
+    import os
+    import signal
+    os.kill(os.getpid(), signal.SIGINT)
 
 def webserver(config, printer_index, host, port, insecure=False, **kwargs):
     """
