@@ -97,6 +97,8 @@ def pppp_state(sock):
 
     pppp_connected = False
 
+    # A timeout of 3 sec should be fine, as the printer continuously sends
+    # PktAlive messages every second on an established connnection.
     for chan, msg in app.svc.stream("pppp", timeout=3.0):
         if not pppp_connected:
             with app.svc.borrow("pppp") as pppp:
