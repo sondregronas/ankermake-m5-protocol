@@ -36,6 +36,9 @@ class PPPPService(Service):
                 raise ServiceStoppedError("No config available")
             printer = cfg.printers[app.config["printer_index"]]
 
+        if not printer.ip_addr:
+            raise ServiceStoppedError("Printer IP address not available")
+
         api = AnkerPPPPAsyncApi.open_lan(Duid.from_string(printer.p2p_duid), host=printer.ip_addr)
         if app.config["pppp_dump"]:
             dumpfile = app.config["pppp_dump"]
@@ -70,7 +73,12 @@ class PPPPService(Service):
         except ConnectionResetError:
             raise ServiceRestartSignal()
 
-        if not msg or msg.type != Type.DRW:
+        if not msg:
+            return
+
+        if msg.type != Type.DRW:
+            # forward messages other than Type.DRW without further processing
+            self.notify((getattr(msg, "chan", None), msg))
             return
 
         ch = self._api.chans[msg.chan]

@@ -41,12 +41,8 @@ class FileTransferService(Service):
 
             log.info("Sending file contents..")
             blocksize = 1024 * 32
-            chunks = cli.util.split_chunks(data, blocksize)
-            pos = 0
-
-            for chunk in chunks:
+            for pos, chunk in cli.util.split_chunks(data, blocksize):
                 self.api_aabb_request(api, FileTransfer.DATA, chunk, pos)
-                pos += len(chunk)
 
             log.info("File upload complete. Requesting print start of job.")
 

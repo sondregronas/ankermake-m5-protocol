@@ -104,12 +104,8 @@ def pretty_size(size):
 
 
 def split_chunks(data, chunksize):
-    data = data[:]
-    res = []
-    while data:
-        res.append(data[:chunksize])
-        data = data[chunksize:]
-    return res
+    for offset in range(0, len(data), chunksize):
+        yield offset, data[offset:offset+chunksize]
 
 
 def parse_http_bool(str):

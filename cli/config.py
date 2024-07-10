@@ -7,8 +7,11 @@ from pathlib import Path
 from platformdirs import PlatformDirs
 
 from libflagship.megajank import pppp_decode_initstring
-from libflagship.httpapi import AnkerHTTPAppApiV1, AnkerHTTPPassportApiV1
+from libflagship.httpapi import AnkerHTTPApi, AnkerHTTPAppApiV1, \
+                                AnkerHTTPPassportApiV1, AnkerHTTPPassportApiV2, \
+                                APIError
 from libflagship.util import unhex
+from libflagship import logincache
 
 from .model import Serialize, Account, Printer, Config
 
@@ -27,7 +30,7 @@ class BaseConfigManager:
     def _borrow(self, value, write, default=None):
         pr = self.load(value, default)
         yield pr
-        if write:
+        if write and pr is not None:
             self.save(value, pr)
 
     @property
@@ -96,6 +99,7 @@ def load_config_from_api(auth_token, region, insecure):
         region=region,
         user_id=profile['user_id'],
         email=profile["email"],
+        country=profile["country"]["code"],
     ), printers=[])
 
     log.info("Requesting printer list..")
@@ -128,6 +132,94 @@ def load_config_from_api(auth_token, region, insecure):
         log.info(f"Adding printer [{station_sn}]")
 
     return config
+
+
+def fetch_config_by_login(email, password, region, insecure, captcha_id=None, captcha_answer=None):
+    log.info("Initializing API..")
+    if not region:
+        region = AnkerHTTPApi.guess_region()
+        log.info(f"Using region '{region.upper()}'")
+    ppapi = AnkerHTTPPassportApiV2(region=region, verify=not insecure)
+
+    log.info("Logging in..")
+    login = ppapi.login(email, password, captcha_id=captcha_id, captcha_answer=captcha_answer)
+    return login
+
+
+def import_config_from_server(config, login_data, insecure):
+    # extract auth token
+    auth_token = login_data["auth_token"]
+
+    # extract account region
+    region = logincache.guess_region(login_data["ab_code"])
+
+    try:
+        cfg = load_config_from_api(auth_token, region, insecure)
+    except APIError as E:
+        log.critical(f"Config import failed: {E} "
+                     "(auth token might be expired: make sure Ankermake Slicer can connect, then try again)")
+    except Exception as E:
+        log.critical(f"Config import failed: {E}")
+
+    # prepare to rescue any printer IP addresses already configured
+    printer_ips = get_printer_ips(config)
+
+    # save config to json file named `ankerctl/default.json`
+    config.save("default", cfg)
+
+    # restore printer IP addresses
+    update_empty_printer_ips(config, printer_ips)
+
+
+def get_printer_ips(config):
+    try:
+        with config.open() as cfg:
+            # prepare to rescue any printer IP addresses already configured
+            printer_ips = dict([[p.sn, p.ip_addr] for p in cfg.printers if p.ip_addr])
+    except KeyError:
+        printer_ips = {}
+
+    return printer_ips
+
+
+def update_empty_printer_ips(config, printer_ips):
+    with config.modify() as cfg:
+        # update empty printer IP addresses to the provided ones
+        for printer in cfg.printers:
+            if not printer.ip_addr and printer.sn in printer_ips:
+                log.debug(f"Updating IP address of printer [{printer.sn}] to {printer_ips[printer.sn]}")
+                printer.ip_addr = printer_ips[printer.sn]
+
+
+def update_printer_ip_addresses(config, printer_ips: list) -> list:
+    """
+    Checks configured printer IP addresses against the given set of addresses
+    and updates the IP address in the configuration if they differ.
+
+    Returns:
+    - List of names of updated printers, None upon an error
+    """
+    updated_printers = list()
+
+    with config.modify() as cfg:
+        if not cfg or not cfg.printers:
+            log.error("No printers configured. Run 'config login' or 'config import' to populate.")
+            return None
+
+        for p in cfg.printers:
+            prefix = f"  Printer [{p.p2p_duid}]:"
+            if p.p2p_duid in printer_ips:
+                if p.ip_addr != printer_ips[p.p2p_duid]:
+                    old_ip = p.ip_addr if p.ip_addr else "<empty>"
+                    log.info(f"{prefix} Updating IP address from {old_ip} to {printer_ips[p.p2p_duid]}")
+                    p.ip_addr = printer_ips[p.p2p_duid]
+                    updated_printers.append(p.name)
+                else:
+                    log.info(f"{prefix} IP address {p.ip_addr} is already up-to-date")
+            else:
+                log.warning(f"{prefix} No network response received, check connection!")
+
+    return updated_printers
 
 
 def attempt_config_upgrade(config, profile, insecure):

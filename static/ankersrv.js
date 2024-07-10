@@ -5,12 +5,34 @@ $(function () {
     $("#copyYear").text(new Date().getFullYear());
 
     /**
-     * Redirect page when modal dialog is shown
+     * Handle modal being shown
      */
-    var popupModal = document.getElementById("popupModal");
+    var popupModalDom = document.getElementById("popupModal");
+    var popupModalBS = new bootstrap.Modal(popupModalDom);
 
-    popupModal.addEventListener("shown.bs.modal", function (e) {
-        window.location.href = $("#reload").data("href");
+    popupModalDom.addEventListener("shown.bs.modal", function (e) {
+        const trigger = e.relatedTarget;
+        const modalInner = $("#modal-inner");
+        modalInner.text(trigger.dataset.msg);
+        if (trigger.dataset.href) {
+            window.location.href = trigger.dataset.href;
+        }
+    });
+
+    /**
+     * Opens modal if gcode upload file is present
+     */
+    const gcodeUpload = $("#gcode-upload");
+    gcodeUpload.on("click", function (event) {
+        var fileInput = $("#gcode_file");
+        if (fileInput.prop("value").trim() !== "") {
+            const relatedTarget = {
+                dataset: {
+                    msg: gcodeUpload.data("msg"),
+                },
+            };
+            popupModalBS.show(relatedTarget);
+        }
     });
 
     /**
@@ -18,7 +40,7 @@ $(function () {
      */
     if (navigator.clipboard) {
         /* Clipboard support present: link clipboard icons to source object */
-        $("[data-clipboard-src]").each(function(i, elm) {
+        $("[data-clipboard-src]").each(function (i, elm) {
             $(elm).on("click", function () {
                 const src = $(elm).attr("data-clipboard-src");
                 const value = $(src).text();
@@ -29,7 +51,79 @@ $(function () {
     } else {
         /* Clipboard support missing: remove clipboard icons to minimize confusion */
         $("[data-clipboard-src]").remove();
-    };
+    }
+
+    /**
+     * Converts a string to its boolean value.
+     *
+     * @function
+     * @param {string} string - The string to be converted.
+     * @returns {boolean} - True if the input string is "true", "yes", or "1"; otherwise, false.
+     */
+    function stringToBoolean(string) {
+        if (!string) return false;
+        switch (string.toLowerCase().trim()) {
+            case "true":
+            case "yes":
+            case "1":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    // Get URL parameter for fullscreen and apply it if needed, this emulates fullscreen
+    let urlParams = new URLSearchParams(window.location.search);
+    let fullscreenParam = stringToBoolean(urlParams.get("fullscreen"));
+    if (fullscreenParam) {
+        setFullscreenClasses(true, true);
+    }
+
+    // Toggle fullscreen when the full screen button in the video element is clicked
+    $("#video-fs").on("click", function () {
+        if (document.fullscreenElement) {
+            document.exitFullscreen();
+        } else {
+            let vp = document.getElementById("vmain");
+            vp.requestFullscreen();
+        }
+    });
+
+    /**
+     * Sets or unsets the required classes for fullscreen functionality.
+     *
+     * @function
+     * @param {boolean} fullscreen - Whether to set or unset the classes (true to set, false to unset).
+     * @param {boolean} emulate - Whether to emulate the fullscreen mode or not.
+     */
+    function setFullscreenClasses(fullscreen = false, emulate = false) {
+        $(".fullscreen-emulate").removeClass("fullscreen-emulate-active");
+        $(".fullscreen-emulate-d-none").removeClass("fullscreen-emulate-d-none-active");
+        if (fullscreen) {
+            if (emulate) {
+                $(".fullscreen-emulate").addClass("fullscreen-emulate-active");
+                $(".fullscreen-emulate-d-none").addClass("fullscreen-emulate-d-none-active");
+            }
+            $("#vmain .col-xl-8").removeClass("col-xl-8").addClass("col-xl-9");
+            $("#vmain .col-xl-4").removeClass("col-xl-4").addClass("col-xl-3");
+        } else {
+            $("#vmain .col-xl-9").removeClass("col-xl-9").addClass("col-xl-8");
+            $("#vmain .col-xl-3").removeClass("col-xl-3").addClass("col-xl-4");
+        }
+    }
+
+    /**
+     * Event listener for fullscreen change event.
+     * Adds or removes appropriate CSS classes to adjust the video element size.
+     */
+    document.addEventListener("fullscreenchange", function () {
+        /* Make more room for video element in fullscreen mode */
+        if (document.fullscreenElement) {
+            setFullscreenClasses(true);
+        } else {
+            setFullscreenClasses(false);
+        }
+    });
 
     /**
      * Initializes bootstrap alerts and sets a timeout for when they should automatically close
@@ -88,6 +182,77 @@ $(function () {
     }
 
     /**
+     * Updates the country code <select> element
+     */
+    (function(selectElement) {
+        var countryCodes = selectElement.data("countrycodes");
+        var currentCountry = selectElement.data("country");
+        countryCodes.forEach((item) => {
+            var selected = (currentCountry == item.c) ? " selected" : "";
+            $(`<option value="${item.c}"${selected}>${item.n}</option>`).appendTo(selectElement);
+        });
+    })($("#loginCountry"));
+
+    /**
+     * Login data submission and CAPTCHA handling
+     */
+    $("#captchaRow").hide();
+    $("#loginCaptchaId").val("");
+
+    $("#config-login-form").on("submit", function(e) {
+        e.preventDefault();
+
+        (async () => {
+            const form = $("#config-login-form");
+            const url = form.attr("action");
+
+            const form_data = new URLSearchParams();
+            for (const pair of new FormData(form.get(0))) {
+                form_data.append(pair[0], pair[1]);
+            }
+
+            const resp = await fetch(url, {
+                method: 'POST',
+                body: form_data
+            });
+
+            if (resp.status < 300) {
+                const data = await resp.json();
+                const input = $("#loginCaptchaText");
+                if ("redirect" in data) {
+                    document.location = data["redirect"];
+                }
+                else if ("error" in data) {
+                    flash_message(data["error"], "danger");
+                    input.get(0).focus();
+                }
+                else if ("captcha_id" in data) {
+                    input.val("");
+                    input.attr("aria-required", "true");
+                    input.prop("required");
+                    input.get(0).focus();
+                    $("#loginCaptchaId").val(data["captcha_id"]);
+                    $("#loginCaptchaImg").attr("src", data["captcha_url"]);
+                    $("#captchaRow").show();
+                }
+            }
+            else {
+                flash_message(`HTTP Error ${resp.status}: ${resp.statusText}`, "danger")
+            }
+        })();
+    });
+
+    function flash_message(message, category) {
+        // copy from base.html
+        $(`<div class="alert alert-${category} alert-dismissible fade show" data-timeout="7500" role="alert">` +
+          '<button type="button" class="btn-close btn-sm btn-close-white" data-bs-dismiss="alert" aria-label="Close">' +
+          '</button>' +
+          message +
+          '</div>').appendTo($("#messages").empty());
+        // does not auto-close yet...
+    }
+
+    /**
      * AutoWebSocket class
      *
      * This class wraps a WebSocket, and makes it automatically reconnect if the
@@ -97,13 +262,13 @@ $(function () {
         constructor({
             name,
             url,
-            badge=null,
-            open=null,
-            close=null,
-            error=null,
-            message=null,
-            binary=false,
-            reconnect=1000,
+            badge = null,
+            open = null,
+            close = null,
+            error = null,
+            message = null,
+            binary = false,
+            reconnect = 1000,
         }) {
             this.name = name;
             this.url = url;
@@ -162,7 +327,7 @@ $(function () {
 
     sockets.mqtt = new AutoWebSocket({
         name: "mqtt socket",
-        url: `ws://${location.host}/ws/mqtt`,
+        url: `${location.protocol.replace('http','ws')}//${location.host}/ws/mqtt`,
         badge: "#badge-mqtt",
 
         message: function (ev) {
@@ -210,7 +375,7 @@ $(function () {
             $("#progress").text("0%");
             $("#nozzle-temp").text("0°C");
             $("#set-nozzle-temp").attr("value", "0°C");
-            $("#bed-temp").text("$0°C");
+            $("#bed-temp").text("0°C");
             $("#set-bed-temp").attr("value", "0°C");
             $("#print-speed").text("0mm/s");
             $("#print-layer").text("0 / 0");
@@ -222,8 +387,8 @@ $(function () {
      */
     sockets.video = new AutoWebSocket({
         name: "Video socket",
-        url: `ws://${location.host}/ws/video`,
-        badge: "#badge-pppp",
+        url: `${location.protocol.replace('http','ws')}${location.host}/ws/video`,
+        badge: "#badge-video",
         binary: true,
 
         open: function () {
@@ -261,17 +426,30 @@ $(function () {
 
     sockets.ctrl = new AutoWebSocket({
         name: "Control socket",
-        url: `ws://${location.host}/ws/ctrl`,
+        url: `${location.protocol.replace('http','ws')}${location.host}/ws/ctrl`,
         badge: "#badge-ctrl",
+    });
+
+    sockets.pppp_state = new AutoWebSocket({
+        name: "PPPP socket",
+        url: `${location.protocol.replace('http','ws')}//${location.host}/ws/pppp-state`,
+        badge: "#badge-pppp",
     });
 
     /* Only connect websockets if #player element exists in DOM (i.e., if we
      * have a configuration). Otherwise we are constantly trying to make
      * connections that will never succeed. */
-    if ($("#player").length) {
+    if ($("#badge-mqtt").length) {
         sockets.mqtt.connect();
-        sockets.video.connect();
+    }
+    if ($("#badge-ctrl").length) {
         sockets.ctrl.connect();
+    }
+    if ($("#badge-pppp").length) {
+        sockets.pppp_state.connect();
+    }
+    if ($("#player").length) {
+        sockets.video.connect();
     }
 
     /**
@@ -305,5 +483,4 @@ $(function () {
         sockets.ctrl.ws.send(JSON.stringify({ quality: 1 }));
         return false;
     });
-
 });

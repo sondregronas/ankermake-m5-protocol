@@ -3,6 +3,8 @@
 import json
 import click
 import platform
+import getpass
+import webbrowser
 import logging as log
 from os import path, environ
 from rich import print  # you need python3
@@ -15,6 +17,7 @@ import cli.mqtt
 import cli.util
 import cli.pppp
 import cli.checkver  # check python version
+import cli.countrycodes
 
 import libflagship.httpapi
 import libflagship.logincache
@@ -22,8 +25,13 @@ import libflagship.seccode
 
 from libflagship.util import enhex
 from libflagship.mqtt import MqttMsgType
-from libflagship.pppp import PktLanSearch, P2PCmdType, P2PSubCmdType, FileTransfer
+from libflagship.pppp import P2PCmdType, P2PSubCmdType, FileTransfer
 from libflagship.ppppapi import FileUploadInfo, PPPPError
+
+
+from dotenv import load_dotenv
+
+load_dotenv()  # take environment variables from .env.
 
 
 class Environment:
@@ -214,22 +222,26 @@ def pppp(): pass
 
 
 @pppp.command("lan-search")
+@click.option("--store", "-s", is_flag=True, help="Store found IP address(es) in configuration file")
 @pass_env
-def pppp_lan_search(env):
+def pppp_lan_search(env, store):
     """
     Attempt to find available printers on local LAN.
 
     Works by broadcasting a LAN_SEARCH packet, and waiting for a reply.
     """
-    api = cli.pppp.pppp_open_broadcast(dumpfile=env.pppp_dump)
-    try:
-        api.send(PktLanSearch())
-        resp = api.recv(timeout=1.0)
-    except TimeoutError:
+    found_printers = dict()
+    for duid, ip in cli.pppp.pppp_find_printer_ip_addresses(dumpfile=env.pppp_dump):
+        log.info(f"Printer [{duid}] is online at {ip}")
+        found_printers[duid] = ip
+
+    if not found_printers:
         log.error("No printers responded within timeout. Are you connected to the same network as the printer?")
-    else:
-        if isinstance(resp, libflagship.pppp.PktPunchPkt):
-            log.info(f"Printer [{str(resp.duid)}] is online at {str(api.addr[0])}")
+
+    # if requested, update stored printer IP addresses
+    if store and found_printers:
+        log.info(f"Checking configured printer IP addresses:")
+        cli.config.update_printer_ip_addresses(env.config, found_printers)
 
 
 @pppp.command("print-file")
@@ -382,6 +394,82 @@ def config_decode(env, fd):
     print(json.dumps(cache, indent=4))
 
 
+@config.command("login")
+@click.argument("country", required=False, metavar="[COUNTRY (2 letter code)]")
+@click.argument("email", required=False)
+@click.argument("password", required=False)
+@pass_env
+def config_login(env, country, email, password):
+    """
+    Fetch configuration by logging in with provided credentials.
+    """
+
+    try:
+        with env.config.open() as cfg:
+            if cfg.account:
+                if country is None and cfg.account.country:
+                    country = cfg.account.country
+                    log.info(f"Country: {country.upper()}")
+                if email is None:
+                    email = cfg.account.email
+                    log.info(f"Email address: {email}")
+    except KeyError:
+        pass
+
+    # interactive user input (only if arguments not given on command line)
+    if email is None:
+        email = input("Please enter your email address: ").strip()
+
+    if password is None:
+        password = getpass.getpass("Please enter your password: ")
+
+    if country:
+        country = country.upper()
+    while not cli.countrycodes.code_to_country(country):
+        country = input("Please enter your country (2 digit code): ").strip().upper()
+
+    region = libflagship.logincache.guess_region(country)
+    login = None
+    tries = 3
+    captcha = {"id": None, "answer": None}
+    # retry until login was successful
+    while not login and tries > 0:
+        tries -= 1
+        try:
+            login = cli.config.fetch_config_by_login(email, password, region, env.insecure,
+                                                     captcha_id=captcha["id"], captcha_answer=captcha["answer"])
+            break
+        except libflagship.httpapi.APIError as E:
+            # check if the error is actually a request to solve a captcha
+            if E.json and "data" in E.json:
+                data = E.json["data"]
+                if "captcha_id" in data:
+                    captcha = {
+                        "id": data["captcha_id"],
+                        "img": data["item"]
+                    }
+
+        # ask the user to resolve the captcha
+        if captcha["id"]:
+            log.warning(f"Login requires solving a captcha")
+            if webbrowser.open(captcha["img"], new=2):
+                captcha["answer"] = input("Please enter the captcha answer: ").strip()
+            else:
+                log.critical(f"Cannot open webbrowser for displaying captcha, aborting.")
+                tries = 0
+        else:
+            log.critical(f"Unknown login error: {E}")
+            tries = 0
+
+    if login:
+        log.info(f"Login successful, importing configuration from server..")
+
+        # load remaining configuration items from the server
+        cli.config.import_config_from_server(env.config, login, env.insecure)
+
+        log.info("Finished import")
+
+
 @config.command("import")
 @click.argument("fd", required=False, type=click.File("r"), metavar="path/to/login.json")
 @pass_env
@@ -415,23 +503,11 @@ def config_import(env, fd):
 
     log.info("Loading cache..")
 
-    # extract auth token
+    # load the login configuration from the provided file
     cache = libflagship.logincache.load(fd.read())["data"]
-    auth_token = cache["auth_token"]
 
-    # extract account region
-    region = libflagship.logincache.guess_region(cache["ab_code"])
-
-    try:
-        config = cli.config.load_config_from_api(auth_token, region, env.insecure)
-    except libflagship.httpapi.APIError as E:
-        log.critical(f"Config import failed: {E} "
-                    "(auth token might be expired: make sure Ankermake Slicer can connect, then try again)")
-    except Exception as E:
-        log.critical(f"Config import failed: {E}")
-
-    # save config to json file named `ankerctl/default.json`
-    env.config.save("default", config)
+    # import the remaining configuration from the server
+    cli.config.import_config_from_server(env.config, cache, env.insecure)
 
     log.info("Finished import")
 
@@ -455,6 +531,7 @@ def config_show(env):
         print(f"    auth_token: {cfg.account.auth_token[:10]}...<REDACTED>")
         print(f"    email:      {cfg.account.email}")
         print(f"    region:     {cfg.account.region.upper()}")
+        print(f"    country:    {'<REDACTED>' if cfg.account.country else ''}")
         print()
 
         log.info("Printers:")
