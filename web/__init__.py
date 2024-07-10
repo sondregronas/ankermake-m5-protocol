@@ -445,8 +445,8 @@ def app_api_ankerctl_status() -> dict:
 
     svcs_status = {svc_name: get_svc_status(svc) for svc_name, svc in app.svc.svcs.items()}
 
-    # Ignore filetransfer service, as it is only online when in use (?) (relies on pppp service anyway)
-    ok = all([svc['online'] for svc_name, svc in svcs_status.items() if svc_name != 'filetransfer'])
+    # If any service is online, the status is 'ok'
+    ok = any([svc['online'] for svc_name, svc in svcs_status.items()])
 
     return {
         "status": "ok" if ok else "error",
