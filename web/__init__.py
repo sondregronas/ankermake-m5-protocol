@@ -35,7 +35,7 @@ from user_agents import parse as user_agent_parse
 
 from libflagship import ROOT_DIR
 
-from web.lib.service import ServiceManager
+from web.lib.service import ServiceManager, RunState, ServiceStoppedError
 
 import web.config
 import web.platform
