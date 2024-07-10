@@ -116,8 +116,14 @@ def video_download():
     def generate():
         if not app.config["login"]:
             return
-        if not app.svc.get("videoqueue").running:
-            app.svc.get("videoqueue").run()
+        vq = app.svc.svcs.get("videoqueue")
+        if vq.state == RunState.Stopped:
+            try:
+                vq.start()
+                vq.await_ready()
+            except ServiceStoppedError:
+                log.error("VideoQueueService could not be started")
+                return
         for msg in app.svc.stream("videoqueue"):
             yield msg.data
 
