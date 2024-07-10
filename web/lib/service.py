@@ -59,6 +59,7 @@ class Service(Thread):
         self.handlers = []
         self._holdoff = Holdoff()
         self.daemon = True
+        self._start_attempts = 0
         super().start()
 
     @property
@@ -98,6 +99,9 @@ class Service(Thread):
             self._event.clear()
 
     def _attempt_start(self):
+        self._start_attempts += 1
+        if self._start_attempts > 10:
+            raise RuntimeError(f"{self.name}: Failed to start worker after 10 attempts, shutting down ankerctl")
         try:
             log.debug(f"{self.name} worker starting..")
             self.worker_start()
@@ -117,6 +121,7 @@ class Service(Thread):
         else:
             log.info(f"{self.name}: Worker started")
             self.state = RunState.Running
+            self._start_attempts = 0
 
     def _attempt_run(self):
         try:
