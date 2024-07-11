@@ -153,7 +153,7 @@ def video_download():
             return
         # start videoqueue if it is not running
         vq = app.svc.svcs.get("videoqueue")
-        if vq and vq.state == RunState.Stopped:
+        if vq.state == RunState.Stopped:
             try:
                 vq.start()
                 vq.await_ready()
@@ -441,10 +441,9 @@ def app_api_ankerctl_status() -> dict:
 
     Returns:
         A dictionary containing the keys 'status', possible_states and 'services'
-        status = 'ok' == some service is online, 'error' == no service is online
+        status = 'ok' == all running | 'error' == some not running
         services = {svc_name: {online: bool, state: str, state_value: int}}
         possible_states = {state_name: state_value}
-        version = {api: str, server: str, text: str}
     """
     def get_svc_status(svc):
         # NOTE: Some services might not update their state on stop, so we can't rely on it to be 100% accurate
@@ -462,7 +461,6 @@ def app_api_ankerctl_status() -> dict:
         "status": "ok" if ok else "error",
         "services": svcs_status,
         "possible_states": {state.name: state.value for state in RunState},
-        "version": app_api_version(),
     }
 
 
@@ -493,7 +491,7 @@ def webserver(config, printer_index, host, port, insecure=False, **kwargs):
             if printer_index < len(cfg.printers):
                 video_supported = cfg.printers[printer_index].model not in PRINTERS_WITHOUT_CAMERA
         else:
-            if not cfg.printers:
+            if len(cfg.printers) == 0:
                 log.error("No printers found in config")
             else:
                 log.critical(f"Printer number {printer_index} out of range, max printer number is {len(cfg.printers)-1} ")
