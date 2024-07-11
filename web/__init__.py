@@ -109,9 +109,16 @@ def pppp_state(sock):
                     # to signal that the pppp connection is up
                     sock.send(json.dumps({"status": "connected"}))
                     log.info(f"PPPP connection established")
-    if not pppp_connected:
+
+    try:
+        pppp = app.svc.get("pppp")
         log.warning(f'[{datetime.now().strftime("%d/%b/%Y %H:%M:%S")}] PPPP connection lost, restarting PPPPService')
-        app.svc.svcs.get("pppp").worker_start()
+        pppp.stop()
+        pppp.await_stopped()
+        pppp.start()
+        pppp.await_ready()
+    except ServiceStoppedError:
+        return
 
 
 @sock.route("/ws/ctrl")
@@ -145,15 +152,8 @@ def video_download():
     def generate():
         if not app.config["login"] or not app.config["video_supported"]:
             return
-        # start videoqueue if it is not running
-        vq = app.svc.svcs.get("videoqueue")
-        if vq.state == RunState.Stopped:
-            try:
-                vq.start()
-                vq.await_ready()
-            except ServiceStoppedError:
-                log.error("VideoQueueService could not be started")
-                return
+        if not app.svc.get("videoqueue").running:
+            app.svc.get("videoqueue").run()
         for msg in app.svc.stream("videoqueue"):
             yield msg.data
 
