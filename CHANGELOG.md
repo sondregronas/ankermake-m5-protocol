@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2024-07-11
+
+ - Add version to api status
+ - Minor bugfix on /video endpoint if videoqueue is not running
+ - Reduce logging verbosity on pppp connection attempts
+
 ## [1.2.0] - 2024-07-10
 
  - Make webserver accessible when credentials are not set
