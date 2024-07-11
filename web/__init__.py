@@ -37,7 +37,7 @@ from user_agents import parse as user_agent_parse
 
 from libflagship import ROOT_DIR
 
-from web.lib.service import ServiceManager, RunState, ServiceStoppedError
+from web.lib.service import ServiceManager, RunState
 
 import web.config
 import web.platform
@@ -110,13 +110,10 @@ def pppp_state(sock):
                     sock.send(json.dumps({"status": "connected"}))
                     log.info(f"PPPP connection established")
 
-    try:
-        pppp = app.svc.get("pppp")
+    pppp = app.svc.get("pppp")
+    if not pppp_connected and not pppp.state == RunState.Starting:
         log.warning(f'[{datetime.now().strftime("%d/%b/%Y %H:%M:%S")}] PPPP connection lost, restarting PPPPService')
         pppp.restart()
-    except ServiceStoppedError:
-        # Nothing to do, the service is already stopped and will be restarted when a new connection is initiated
-        return
 
 
 @sock.route("/ws/ctrl")
