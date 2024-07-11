@@ -65,9 +65,6 @@ import web.service.filetransfer
 # autopep8: on
 
 
-PRINTERS_WITHOUT_CAMERA = ["V8110"]
-
-
 @sock.route("/ws/mqtt")
 def mqtt(sock):
     """
@@ -114,10 +111,7 @@ def pppp_state(sock):
                     log.info(f"PPPP connection established")
     if not pppp_connected:
         log.warning(f'[{datetime.now().strftime("%d/%b/%Y %H:%M:%S")}] PPPP connection lost, restarting PPPPService')
-        try:
-            app.svc.get("pppp").worker_start()
-        except TimeoutError:
-            app.svc.get("pppp").restart()
+        app.svc.svcs.get("pppp").worker_start()
 
 
 @sock.route("/ws/ctrl")
@@ -366,9 +360,6 @@ def app_api_ankerctl_server_internal_reload(success_message: str=None):
 
     with config.open() as cfg:
         app.config["login"] = bool(cfg)
-        app.config["video_supported"] = any([printer.model not in PRINTERS_WITHOUT_CAMERA for printer in cfg.printers])
-        if cfg.printers and not app.svc.svcs:
-            register_services(app)
 
     try:
         app.svc.restart_all(await_ready=False)
@@ -464,14 +455,6 @@ def app_api_ankerctl_status() -> dict:
     }
 
 
-def register_services(app):
-    app.svc.register("pppp", web.service.pppp.PPPPService())
-    if app.config["video_supported"]:
-        app.svc.register("videoqueue", web.service.video.VideoQueue())
-    app.svc.register("mqttqueue", web.service.mqtt.MqttQueue())
-    app.svc.register("filetransfer", web.service.filetransfer.FileTransferService())
-
-
 def webserver(config, printer_index, host, port, insecure=False, **kwargs):
     """
     Starts the Flask webserver
@@ -489,12 +472,10 @@ def webserver(config, printer_index, host, port, insecure=False, **kwargs):
         video_supported = False
         if cfg:
             if printer_index < len(cfg.printers):
-                video_supported = cfg.printers[printer_index].model not in PRINTERS_WITHOUT_CAMERA
+                # no webcam in the AnkerMake M5C (Model "V8110")
+                video_supported = cfg.printers[printer_index].model != "V8110"
         else:
-            if len(cfg.printers) == 0:
-                log.error("No printers found in config")
-            else:
-                log.critical(f"Printer number {printer_index} out of range, max printer number is {len(cfg.printers)-1} ")
+            log.critical(f"Printer number {printer_index} out of range, max printer number is {len(cfg.printers)-1} ")
         app.config["config"] = config
         app.config["login"] = bool(cfg)
         app.config["printer_index"] = printer_index
@@ -503,6 +484,9 @@ def webserver(config, printer_index, host, port, insecure=False, **kwargs):
         app.config["host"] = host
         app.config["insecure"] = insecure
         app.config.update(kwargs)
-        if cfg.printers:
-            register_services(app)
+        app.svc.register("pppp", web.service.pppp.PPPPService())
+        if video_supported:
+            app.svc.register("videoqueue", web.service.video.VideoQueue())
+        app.svc.register("mqttqueue", web.service.mqtt.MqttQueue())
+        app.svc.register("filetransfer", web.service.filetransfer.FileTransferService())
         app.run(host=host, port=port)
