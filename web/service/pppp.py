@@ -46,7 +46,7 @@ class PPPPService(Service):
             pktwr = PacketWriter.open(dumpfile)
             api.set_dumper(pktwr)
 
-        log.info(f"Trying connect to printer {printer.name} ({printer.p2p_duid}) over pppp using ip {printer.ip_addr}")
+        log.debug(f"Trying connect to printer {printer.name} ({printer.p2p_duid}) over pppp using ip {printer.ip_addr}")
 
         api.connect_lan_search()
 
@@ -57,6 +57,7 @@ class PPPPService(Service):
             except StopIteration:
                 raise ConnectionRefusedError("Connection rejected by device")
 
+        log.info(f"Successfully connected to printer {printer.name} ({printer.p2p_duid}) over pppp using ip {printer.ip_addr}")
         log.info("Established pppp connection")
         self._api = api
 

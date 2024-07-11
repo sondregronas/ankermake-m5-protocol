@@ -29,6 +29,7 @@ Services:
 import json
 import logging as log
 
+from datetime import datetime
 from secrets import token_urlsafe as token
 from flask import Flask, flash, request, render_template, Response, session, url_for, jsonify
 from flask_sock import Sock
@@ -36,7 +37,7 @@ from user_agents import parse as user_agent_parse
 
 from libflagship import ROOT_DIR
 
-from web.lib.service import ServiceManager
+from web.lib.service import ServiceManager, RunState, ServiceStoppedError
 
 import web.config
 import web.platform
@@ -62,6 +63,9 @@ import web.service.video
 import web.service.mqtt
 import web.service.filetransfer
 # autopep8: on
+
+
+PRINTERS_WITHOUT_CAMERA = ["V8110"]
 
 
 @sock.route("/ws/mqtt")
@@ -97,8 +101,8 @@ def pppp_state(sock):
 
     pppp_connected = False
 
-    # A timeout of 3 sec should be finr, as the printer continuously sends
-    # PktAlive messages every second on an established connnection.
+    # A timeout of 3 sec should be fine, as the printer continuously sends
+    # PktAlive messages every second on an established connection.
     for chan, msg in app.svc.stream("pppp", timeout=3.0):
         if not pppp_connected:
             with app.svc.borrow("pppp") as pppp:
@@ -108,8 +112,12 @@ def pppp_state(sock):
                     # to signal that the pppp connection is up
                     sock.send(json.dumps({"status": "connected"}))
                     log.info(f"PPPP connection established")
-
-    log.warning(f"PPPP connection lost")
+    if not pppp_connected:
+        log.warning(f'[{datetime.now().strftime("%d/%b/%Y %H:%M:%S")}] PPPP connection lost, restarting PPPPService')
+        try:
+            app.svc.get("pppp").worker_start()
+        except TimeoutError:
+            app.svc.get("pppp").restart()
 
 
 @sock.route("/ws/ctrl")
@@ -143,6 +151,15 @@ def video_download():
     def generate():
         if not app.config["login"] or not app.config["video_supported"]:
             return
+        # start videoqueue if it is not running
+        vq = app.svc.svcs.get("videoqueue")
+        if vq and vq.state == RunState.Stopped:
+            try:
+                vq.start()
+                vq.await_ready()
+            except ServiceStoppedError:
+                log.error("VideoQueueService could not be started")
+                return
         for msg in app.svc.stream("videoqueue"):
             yield msg.data
 
@@ -349,6 +366,9 @@ def app_api_ankerctl_server_internal_reload(success_message: str=None):
 
     with config.open() as cfg:
         app.config["login"] = bool(cfg)
+        app.config["video_supported"] = any([printer.model not in PRINTERS_WITHOUT_CAMERA for printer in cfg.printers])
+        if cfg.printers and not app.svc.svcs:
+            register_services(app)
 
     try:
         app.svc.restart_all(await_ready=False)
@@ -379,8 +399,8 @@ def app_api_ankerctl_file_upload():
     except Exception as err:
         return web.util.flash_redirect(url_for('app_root'),
                                        f"Unknown error occurred: {err}", "danger")
-    
-    
+
+
 @app.post("/api/files/local")
 def app_api_files_local():
     """
@@ -414,6 +434,46 @@ def app_api_files_local():
     return {}
 
 
+@app.get("/api/ankerctl/status")
+def app_api_ankerctl_status() -> dict:
+    """
+    Returns the status of the services
+
+    Returns:
+        A dictionary containing the keys 'status', possible_states and 'services'
+        status = 'ok' == some service is online, 'error' == no service is online
+        services = {svc_name: {online: bool, state: str, state_value: int}}
+        possible_states = {state_name: state_value}
+        version = {api: str, server: str, text: str}
+    """
+    def get_svc_status(svc):
+        # NOTE: Some services might not update their state on stop, so we can't rely on it to be 100% accurate
+        state = svc.state
+        if state == RunState.Running:
+            return {'online': True, 'state': state.name, 'state_value': state.value}
+        return {'online': False, 'state': state.name, 'state_value': state.value}
+
+    svcs_status = {svc_name: get_svc_status(svc) for svc_name, svc in app.svc.svcs.items()}
+
+    # If any service is online, the status is 'ok'
+    ok = any([svc['online'] for svc_name, svc in svcs_status.items()])
+
+    return {
+        "status": "ok" if ok else "error",
+        "services": svcs_status,
+        "possible_states": {state.name: state.value for state in RunState},
+        "version": app_api_version(),
+    }
+
+
+def register_services(app):
+    app.svc.register("pppp", web.service.pppp.PPPPService())
+    if app.config["video_supported"]:
+        app.svc.register("videoqueue", web.service.video.VideoQueue())
+    app.svc.register("mqttqueue", web.service.mqtt.MqttQueue())
+    app.svc.register("filetransfer", web.service.filetransfer.FileTransferService())
+
+
 def webserver(config, printer_index, host, port, insecure=False, **kwargs):
     """
     Starts the Flask webserver
@@ -431,10 +491,12 @@ def webserver(config, printer_index, host, port, insecure=False, **kwargs):
         video_supported = False
         if cfg:
             if printer_index < len(cfg.printers):
-                # no webcam in the AnkerMake M5C (Model "V8110")
-                video_supported = cfg.printers[printer_index].model != "V8110"
+                video_supported = cfg.printers[printer_index].model not in PRINTERS_WITHOUT_CAMERA
         else:
-            log.critical(f"Printer number {printer_index} out of range, max printer number is {len(cfg.printers)-1} ")
+            if not cfg.printers:
+                log.error("No printers found in config")
+            else:
+                log.critical(f"Printer number {printer_index} out of range, max printer number is {len(cfg.printers)-1} ")
         app.config["config"] = config
         app.config["login"] = bool(cfg)
         app.config["printer_index"] = printer_index
@@ -443,9 +505,6 @@ def webserver(config, printer_index, host, port, insecure=False, **kwargs):
         app.config["host"] = host
         app.config["insecure"] = insecure
         app.config.update(kwargs)
-        app.svc.register("pppp", web.service.pppp.PPPPService())
-        if video_supported:
-            app.svc.register("videoqueue", web.service.video.VideoQueue())
-        app.svc.register("mqttqueue", web.service.mqtt.MqttQueue())
-        app.svc.register("filetransfer", web.service.filetransfer.FileTransferService())
+        if cfg.printers:
+            register_services(app)
         app.run(host=host, port=port)
