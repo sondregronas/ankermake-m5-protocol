@@ -113,11 +113,9 @@ def pppp_state(sock):
     try:
         pppp = app.svc.get("pppp")
         log.warning(f'[{datetime.now().strftime("%d/%b/%Y %H:%M:%S")}] PPPP connection lost, restarting PPPPService')
-        pppp.stop()
-        pppp.await_stopped()
-        pppp.start()
-        pppp.await_ready()
+        pppp.restart()
     except ServiceStoppedError:
+        # Nothing to do, the service is already stopped and will be restarted when a new connection is initiated
         return
 
 
@@ -152,8 +150,6 @@ def video_download():
     def generate():
         if not app.config["login"] or not app.config["video_supported"]:
             return
-        if not app.svc.get("videoqueue").running:
-            app.svc.get("videoqueue").run()
         for msg in app.svc.stream("videoqueue"):
             yield msg.data
 
@@ -437,7 +433,6 @@ def app_api_ankerctl_status() -> dict:
         possible_states = {state_name: state_value}
     """
     def get_svc_status(svc):
-        # NOTE: Some services might not update their state on stop, so we can't rely on it to be 100% accurate
         state = svc.state
         if state == RunState.Running:
             return {'online': True, 'state': state.name, 'state_value': state.value}
