@@ -41,7 +41,6 @@ from web.lib.service import ServiceManager
 import web.config
 import web.platform
 import web.util
-import web.exceptions
 
 import cli.util
 import cli.config
@@ -110,7 +109,7 @@ def pppp_state(sock):
                     sock.send(json.dumps({"status": "connected"}))
                     log.info(f"PPPP connection established")
 
-    raise web.exceptions.AnkerConnectionLost("PPPP connection lost")
+    log.warning(f"PPPP connection lost")
 
 
 @sock.route("/ws/ctrl")
@@ -380,8 +379,8 @@ def app_api_ankerctl_file_upload():
     except Exception as err:
         return web.util.flash_redirect(url_for('app_root'),
                                        f"Unknown error occurred: {err}", "danger")
-
-
+    
+    
 @app.post("/api/files/local")
 def app_api_files_local():
     """
@@ -413,15 +412,6 @@ def app_api_files_local():
         )
 
     return {}
-
-
-@app.errorhandler(web.exceptions.AnkerCriticalError)
-def handle_exception(e):
-    # Shutdown the server on critical errors
-    # If running docker, it should restart the container (assuming restart policy is set)
-    import os
-    import signal
-    os.kill(os.getpid(), signal.SIGINT)
 
 
 def webserver(config, printer_index, host, port, insecure=False, **kwargs):
