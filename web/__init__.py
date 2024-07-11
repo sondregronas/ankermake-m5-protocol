@@ -110,10 +110,9 @@ def pppp_state(sock):
                     sock.send(json.dumps({"status": "connected"}))
                     log.info(f"PPPP connection established")
 
-    pppp = app.svc.get("pppp")
-    if not pppp_connected and not pppp.state == RunState.Starting:
-        log.warning(f'[{datetime.now().strftime("%d/%b/%Y %H:%M:%S")}] PPPP connection lost, restarting PPPPService')
-        pppp.restart()
+    if not pppp_connected:
+        log.warning(f"[{datetime.now().strftime('%d/%b/%Y %H:%M:%S')}] PPPP connection lost, restarting PPPPService")
+        app.svc.get('pppp').restart()
 
 
 @sock.route("/ws/ctrl")
