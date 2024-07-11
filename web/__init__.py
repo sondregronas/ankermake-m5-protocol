@@ -29,7 +29,6 @@ Services:
 import json
 import logging as log
 
-from datetime import datetime
 from secrets import token_urlsafe as token
 from flask import Flask, flash, request, render_template, Response, session, url_for, jsonify
 from flask_sock import Sock
@@ -99,7 +98,7 @@ def pppp_state(sock):
     pppp_connected = False
 
     # A timeout of 3 sec should be fine, as the printer continuously sends
-    # PktAlive messages every second on an established connection.
+    # PktAlive messages every second on an established connnection.
     for chan, msg in app.svc.stream("pppp", timeout=3.0):
         if not pppp_connected:
             with app.svc.borrow("pppp") as pppp:
@@ -111,7 +110,7 @@ def pppp_state(sock):
                     log.info(f"PPPP connection established")
 
     if not pppp_connected:
-        log.warning(f"[{datetime.now().strftime('%d/%b/%Y %H:%M:%S')}] PPPP connection lost, restarting PPPPService")
+        log.warning(f"PPPP connection lost, restarting PPPPService")
         app.svc.get('pppp').restart()
 
 
