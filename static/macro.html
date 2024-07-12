@@ -1,9 +1,9 @@
 {% macro static_script(url) -%}
-    <script src="{{ url_for('static', filename=url) }}"></script>
+    <script src="{{ url_for('static', filename=url, _external=True) }}"></script>
 {%- endmacro %}
 
 {% macro static_css(url) -%}
-    <link rel="stylesheet" href="{{ url_for('static', filename=url) }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename=url, _external=True) }}" />
 {%- endmacro %}
 
 {% macro menu_button(id, target, active=False, toggle="pill") %}
