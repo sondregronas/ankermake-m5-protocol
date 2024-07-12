@@ -7,10 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.2.2] - 2024-07-12
-
- - Use abspath in URLs for ingress support
-
 ## [1.2.1] - 2024-07-11
 
  - Add version to api status
