@@ -8,7 +8,7 @@
         <div class="row g-3">
             <div class="col-lg-6">
                 <form
-                    action="{{ url_for('app_api_ankerctl_config_login') }}"
+                    action="{{ url_for('app_api_ankerctl_config_login', _external=True) }}"
                     method="POST"
                     class="mb-3"
                     id="config-login-form"
@@ -97,7 +97,7 @@
 
                 {% if printer %}
                 <form
-                    action="{{ url_for('app_api_ankerctl_config_update_ip_addresses') }}"
+                    action="{{ url_for('app_api_ankerctl_config_update_ip_addresses', _external=True) }}"
                     method="POST"
                     class="mb-3"
                     id="config-update-printer-ips"
@@ -124,7 +124,7 @@
                 {% endif %}
 
                 <form
-                    action="{{ url_for('app_api_ankerctl_config_upload') }}"
+                    action="{{ url_for('app_api_ankerctl_config_upload', _external=True) }}"
                     method="POST"
                     enctype="multipart/form-data"
                     class="mb-3"
@@ -169,7 +169,7 @@
                             <button id="reload" type="button" class="btn btn-danger"
                                     data-bs-toggle="modal" data-bs-target="#popupModal"
                                     data-msg="Restarting ankerctl..."
-                                    data-href="{{ url_for('app_api_ankerctl_server_reload') }}">
+                                    data-href="{{ url_for('app_api_ankerctl_server_reload', _external=True) }}">
                                 {{ macro.bi_icon("bootstrap-reboot", "Reload Services") }}
                             </button>
                         </div>
