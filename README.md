@@ -1,3 +1,8 @@
+> [!IMPORTANT]
+> **Fork isn't actively maintained**
+> 
+> For a more up to date fork see https://github.com/Django1982/ankermake-m5-protocol
+
 # AnkerMake M5 Protocol
 
 Welcome! This repository contains `ankerctl`, a command-line interface and web UI for monitoring, controlling and interfacing with AnkerMake M5 and M5C 3D printers.
